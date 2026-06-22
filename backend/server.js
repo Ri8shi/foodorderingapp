@@ -8,6 +8,9 @@ const connectDatabase = require("./config/database.js");
 
 connectDatabase();
 
-app.listen(process.env.PORT, () =>{
-    console.log(`server started at port ${process.env.PORT}`);
+
+PORT = process.env.PORT
+
+app.listen(PORT, () =>{
+    console.log(`Server started on PORT: ${PORT}`)
 })
