@@ -1,100 +1,121 @@
-const mongoose = require("mongoose")
+const mongoose = require("mongoose");
+const validator = require("validator");
+const bcrypt = require("bcryptjs");
+const jwt = require("jsonwebtoken");
+const crypto = require("crypto");
 
-const validator = require("validator")
+const userSchema = new mongoose.Schema(
+{
+  name: {
+    type: String,
+    required: [true, "Please enter your name"],
+    maxlength: [30, "Name cannot exceed 30 characters"],
+  },
 
-const bcrypt = require("bcryptjs")
+  email: {
+    type: String,
+    required: [true, "Please enter email"],
+    unique: true,
+    lowercase: true,
+    validate: [validator.isEmail, "Enter valid email"],
+  },
 
-const jwt = require("jsonwebtoken")
+  password: {
+    type: String,
+    required: [true, "Enter password"],
+    minlength: 6,
+    select: false,
+  },
 
-const crypto = require("crypto")
+  passwordConfirm: {
+    type: String,
+    required: [true, "Confirm password"],
+    validate: {
+      validator: function (el) {
+        return el === this.password;
+      },
+      message: "Passwords are not same",
+    },
+  },
 
-// const { kMaxLength } = require("buffer")
-// const { type } = require("os")
-// const { url } = require("inspector")
-// const { stringify } = require("querystring")
-// const { timeStamp } = require("console")
+  phoneNumber: {
+    type: String,
+    required: true,
+    match: [/^[0-9]{10}$/, "Enter valid phone number"],
+  },
 
-const userSchema = new mongoose.Schema({
-    name:{
-        type: String,
-        required:[true,"please enter your name"],
-        maxlength:[10,"name cannot execeed the limit"],
-    },
-    email:{
-        type: String,
-        required:[true,"enter email id"],
-        unique:true,
-        lowercase:true,
-        validator:[validator.isEmail,"Enter valid mail"]
-    },
-    password:{
-        type: String,
-        required:[true,"enter password"],
-        minlength: 8,
-        select:false
-    },
-    passwordConfirm:{
-        type: String,
-        required:[true,"conform password"],
-        validator:{
-            // validator: function(el){
-            //     retrun el === this.password;
-            // },
-            message:["passwords are not same"]
-        }
-    },
-    phoneNumber:{
-        type: String,
-        required:true,
-        match: [/^[0-9]{10}$/,"enter vaild phone number"]
-    },
-    role:{
-        type: String,
-        enum: ["user","admin"],
-        default:"user"
-    },
-    avatar:{
-        public_id: String,
-        url: String
-    },
-    passwordChangeAt: Date,
-    passwordResetToken: String,
-    passwordResetExpires: Date
-    
+  role: {
+    type: String,
+    enum: ["user", "restaurant-owner", "admin"],
+    default: "user",
+  },
+
+  avatar: {
+    public_id: String,
+    url: String,
+  },
+
+  passwordChangedAt: Date,
+  passwordResetToken: String,
+  passwordResetExpires: Date,
 },
-{timeStamp: true}
-)
+{ timestamps: true }
+);
 
-userSchema.pre("save", async function (){
-    if(!this.isModified("password")) return;
+// HASH PASSWORD
+userSchema.pre("save", async function (next) {
+  if (!this.isModified("password")) return next();
 
-    this.password = await bcrypt.hash(this.password, 12)
-    this.passwordConfirm = undefined
-})
+  this.password = await bcrypt.hash(this.password, 12);
+  this.passwordConfirm = undefined;
 
-userSchema.method.correctpassword = async function (
-    candidatePassword, userPassword
+  next();
+});
+
+// PASSWORD COMPARE
+userSchema.methods.correctPassword = async function (
+  candidatePassword,
+  userPassword
 ) {
-    return await bcrypt.compare(candidatePassword, userPassword)
+  return await bcrypt.compare(candidatePassword, userPassword);
+};
 
-}
+// CHECK IF PASSWORD CHANGED AFTER JWT
+userSchema.methods.changedPasswordAfter = function (JWTTimestamp) {
+  if (this.passwordChangedAt) {
+    const changedTimestamp = parseInt(
+      this.passwordChangedAt.getTime() / 1000,
+      10
+    );
 
-userSchema.method.changePasswordAfter = function(JWTTimestamp){
-    if(this.passwordChangeAt){
-        const changeTimestamp = parseInt(
-            this.passwordChangeAt.getTime()/1000, 10
-        )
-        return JWTTimestamp < changeTimestamp
-    }
-    return false;
-}
-userSchema.method.getJWTToken = function(){
-    return jwt.sign(
-        {id: this.id},
-        process.env.JWT_SECRET,
-        {expiresIn: process.env.JWT_EXPIRES}
-    )
-}
+    return JWTTimestamp < changedTimestamp;
+  }
 
+  return false;
+};
 
-module.exports = mongoose.model("User", userSchema)
+// CREATE JWT TOKEN
+userSchema.methods.getJWTToken = function () {
+  return jwt.sign(
+    { id: this._id },
+    process.env.JWT_SECRET,
+    { expiresIn: process.env.JWT_EXPIRE }
+  );
+};
+
+// PASSWORD RESET TOKEN
+userSchema.methods.createPasswordResetToken = function () {
+
+  const resetToken = crypto.randomBytes(32).toString("hex");
+
+  this.passwordResetToken = crypto
+    .createHash("sha256")
+    .update(resetToken)
+    .digest("hex");
+
+  this.passwordResetExpires = Date.now() + 10 * 60 * 1000;
+
+  return resetToken;
+};
+
+module.exports = mongoose.model("User", userSchema);
